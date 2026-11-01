@@ -95,18 +95,34 @@ MYSQL_OPTIONS = {
     "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
 }
 
+MYSQL_OPTIONS = {
+    "charset": "utf8mb4",
+    "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+}
+
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 if DATABASE_URL:
     _db = dj_database_url.parse(
         DATABASE_URL,
         conn_max_age=600,
         ssl_require=False,
     )
-    if _db["ENGINE"] == "django.db.backends.mysql":
-    _db.setdefault("OPTIONS", {}).update(MYSQL_OPTIONS)
 
-    if env_bool("DATABASE_SSL_REQUIRE", False):
-        _db["OPTIONS"]["ssl"] = {"ssl_mode": "REQUIRED"}
+    if _db["ENGINE"] == "django.db.backends.mysql":
+        _db.setdefault("OPTIONS", {}).update(MYSQL_OPTIONS)
+
+        # Remove PostgreSQL-style SSL option if present
+        _db["OPTIONS"].pop("sslmode", None)
+
+        # Enable SSL for Aiven MySQL
+        if env_bool("DATABASE_SSL_REQUIRE", False):
+            _db["OPTIONS"]["ssl_mode"] = "REQUIRED"
+
+    DATABASES = {
+        "default": _db
+    }
+
 else:
     DATABASES = {
         "default": {
@@ -118,9 +134,13 @@ else:
             "PORT": os.getenv("DB_PORT", "3306"),
             "CONN_MAX_AGE": 60,
             "OPTIONS": MYSQL_OPTIONS,
-            "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_unicode_ci"},
+            "TEST": {
+                "CHARSET": "utf8mb4",
+                "COLLATION": "utf8mb4_unicode_ci",
+            },
         }
     }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
