@@ -100,11 +100,13 @@ if DATABASE_URL:
     _db = dj_database_url.parse(
         DATABASE_URL,
         conn_max_age=600,
-        ssl_require=env_bool("DATABASE_SSL_REQUIRE", False),
+        ssl_require=False,
     )
     if _db["ENGINE"] == "django.db.backends.mysql":
-        _db.setdefault("OPTIONS", {}).update(MYSQL_OPTIONS)
-    DATABASES = {"default": _db}
+    _db.setdefault("OPTIONS", {}).update(MYSQL_OPTIONS)
+
+    if env_bool("DATABASE_SSL_REQUIRE", False):
+        _db["OPTIONS"]["ssl"] = {"ssl_mode": "REQUIRED"}
 else:
     DATABASES = {
         "default": {
