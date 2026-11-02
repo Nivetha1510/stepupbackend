@@ -9,7 +9,8 @@ from orders.models import Order
 from orders.serializers import OrderSerializer
 from orders.views import user_orders
 from .models import Payment
-from .services import mark_paid, razorpay_configured, start_payment, verify_payment, webhook_signature_ok
+from .services import (mark_paid, razorpay_configured, start_payment, submit_upi_reference, upi_configured, upi_details,
+                       verify_payment, webhook_signature_ok)
 
 
 class PaymentConfigView(APIView):
@@ -18,7 +19,7 @@ class PaymentConfigView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        return Response({"online_enabled": razorpay_configured()})
+        return Response({"online_enabled": razorpay_configured(), "upi_enabled": upi_configured()})
 
 
 class StartPaymentView(APIView):
@@ -40,6 +41,28 @@ class VerifyPaymentView(APIView):
         order = get_object_or_404(Order, pk=request.data.get("order_id"), user=request.user)
         verify_payment(order, request.data.get("razorpay_order_id", ""), request.data.get("razorpay_payment_id", ""),
                        request.data.get("razorpay_signature", ""))
+        order = user_orders(request.user).get(pk=order.pk)
+        return Response(OrderSerializer(order, context={"request": request}).data)
+
+
+class UpiDetailsView(APIView):
+    """GET /api/payments/upi/<order_id>/ — UPI id, amount and app link for an unpaid UPI order."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, order_id):
+        order = get_object_or_404(Order, pk=order_id, user=request.user)
+        return Response(upi_details(order))
+
+
+class UpiReferenceView(APIView):
+    """POST /api/payments/upi/reference/ {order_id, reference} — customer submits their UPI reference number."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        order = get_object_or_404(Order, pk=request.data.get("order_id"), user=request.user)
+        submit_upi_reference(order, request.data.get("reference", ""))
         order = user_orders(request.user).get(pk=order.pk)
         return Response(OrderSerializer(order, context={"request": request}).data)
 

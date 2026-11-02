@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from cart.services import cart_totals
 from payments.models import Payment
-from payments.services import razorpay_configured
+from payments.services import razorpay_configured, upi_configured
 from products.models import Product, ProductVariant
 from .models import Order, OrderItem
 
@@ -65,6 +65,9 @@ def create_order_from_cart(*, user, cart, data, idempotency_key=None):
 
     if data["payment_method"] == Order.METHOD_RAZORPAY and not razorpay_configured():
         raise ValidationError({"payment_method": "Online payment is not available right now."})
+
+    if data["payment_method"] == Order.METHOD_UPI and not upi_configured():
+        raise ValidationError({"payment_method": "UPI payment is not available right now."})
 
     if data["payment_method"] == Order.METHOD_DEMO:
         # Demo online payment: no card data is collected; we simply mark it paid with a demo reference.

@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from orders.models import Order
@@ -199,6 +200,7 @@ class StoreAPITests(APITestCase):
         self.assertEqual(res.status_code, 201, res.data)
         return res.data
 
+    @override_settings(RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET="")
     def test_razorpay_rejected_when_not_configured(self):
         self.auth(self.register())
         self.client.post("/api/cart/items/", {"variant": self.flip.pk}, format="json")
@@ -257,6 +259,65 @@ class StoreAPITests(APITestCase):
                                 HTTP_X_RAZORPAY_SIGNATURE=sig)
         self.assertEqual(good.status_code, 200)
         self.assertEqual(Order.objects.get().payment_status, "paid")
+
+    @override_settings(UPI_ID="")
+    def test_upi_rejected_when_not_configured(self):
+        self.auth(self.register())
+        self.client.post("/api/cart/items/", {"variant": self.flip.pk}, format="json")
+        res = self.client.post("/api/orders/", self.checkout_payload(payment_method="upi"), format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(Order.objects.count(), 0)
+        self.assertFalse(self.client.get("/api/payments/config/").data["upi_enabled"])
+
+    @override_settings(UPI_ID="stepup@okhdfcbank", UPI_PAYEE_NAME="StepUp.in")
+    @override_settings(UPI_ID="stepup@okhdfcbank", UPI_PAYEE_NAME="StepUp.in")
+    def test_upi_i_have_paid_marks_order_paid(self):
+        from payments.models import Payment
+
+        self.assertTrue(self.client.get("/api/payments/config/").data["upi_enabled"])
+        self.auth(self.register())
+        self.client.post("/api/cart/items/", {"variant": self.flip.pk}, format="json")
+        order = self.client.post("/api/orders/", self.checkout_payload(payment_method="upi"), format="json").data
+        self.assertEqual(order["payment_status"], "pending")
+
+        details = self.client.get(f"/api/payments/upi/{order['id']}/")
+        self.assertEqual(details.status_code, 200)
+        self.assertTrue(details.data["link"].startswith("upi://pay?pa=stepup%40okhdfcbank&"), details.data["link"])
+        self.assertIn(f"am={Decimal(order['total']):.2f}", details.data["link"])
+        self.assertIn("cu=INR", details.data["link"])
+
+        # A malformed optional reference is refused and the order stays unpaid.
+        bad = self.client.post("/api/payments/upi/reference/", {"order_id": order["id"], "reference": "abc"}, format="json")
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(Order.objects.get().payment_status, "pending")
+
+        # Another customer can't touch this order.
+        self.client.credentials()
+        owner_token = Token.objects.get(user__email="nivetha@example.com").key
+        self.auth(self.register(email="other@example.com"))
+        self.assertEqual(self.client.get(f"/api/payments/upi/{order['id']}/").status_code, 404)
+        self.assertEqual(self.client.post("/api/payments/upi/reference/", {"order_id": order["id"]}, format="json").status_code, 404)
+
+        # The owner clicks "I have paid" (reference is optional).
+        self.client.credentials()
+        self.auth(owner_token)
+        ok = self.client.post("/api/payments/upi/reference/", {"order_id": order["id"]}, format="json")
+        self.assertEqual(ok.status_code, 200, ok.data)
+        self.assertEqual(ok.data["payment_status"], "paid")
+        self.assertTrue(ok.data["transaction_reference"].startswith("UPI-"))
+        self.assertEqual(Payment.objects.get().status, "paid")
+        # Once paid, the UPI page can't be used again.
+        again = self.client.post("/api/payments/upi/reference/", {"order_id": order["id"]}, format="json")
+        self.assertEqual(again.status_code, 400)
+
+    @override_settings(UPI_ID="stepup@okhdfcbank")
+    def test_upi_keeps_customer_reference_when_given(self):
+        self.auth(self.register())
+        self.client.post("/api/cart/items/", {"variant": self.flip.pk}, format="json")
+        order = self.client.post("/api/orders/", self.checkout_payload(payment_method="upi"), format="json").data
+        ok = self.client.post("/api/payments/upi/reference/", {"order_id": order["id"], "reference": "412345678901"}, format="json")
+        self.assertEqual(ok.data["payment_status"], "paid")
+        self.assertEqual(ok.data["transaction_reference"], "412345678901")
 
     def test_checkout_validation_errors(self):
         self.auth(self.register())

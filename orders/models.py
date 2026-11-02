@@ -34,10 +34,12 @@ class Order(models.Model):
     METHOD_COD = "cod"
     METHOD_DEMO = "demo_online"
     METHOD_RAZORPAY = "razorpay"
+    METHOD_UPI = "upi"
     PAYMENT_METHOD_CHOICES = [
         (METHOD_COD, "Cash on Delivery"),
         (METHOD_DEMO, "Online payment (demo)"),
         (METHOD_RAZORPAY, "Online payment (Razorpay)"),
+        (METHOD_UPI, "UPI"),
     ]
 
     order_number = models.CharField(max_length=20, unique=True, editable=False)

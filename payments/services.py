@@ -3,9 +3,12 @@ import hashlib
 import hmac
 import json
 import logging
+import re
+import secrets
 import urllib.error
 import urllib.request
 from decimal import Decimal
+from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.db import transaction
@@ -105,3 +108,47 @@ def verify_payment(order, gateway_order_id, gateway_payment_id, signature):
 def webhook_signature_ok(raw_body, signature):
     secret = settings.RAZORPAY_WEBHOOK_SECRET
     return bool(secret) and hmac.compare_digest(_signature(raw_body.decode(), secret), signature or "")
+
+
+# ---- Direct UPI -------------------------------------------------------------------------------------------
+# The customer pays our UPI ID from any UPI app. There is no gateway callback, so we cannot check the money
+# arrived: clicking "I have paid" marks the order paid on the customer's word. Staff should compare paid UPI
+# orders against the bank statement (the optional 12-digit UPI reference helps with that).
+UTR_RE = re.compile(r"^\d{12}$")
+
+
+def upi_configured():
+    return bool(settings.UPI_ID)
+
+
+def _unpaid_upi_payment(order):
+    if not upi_configured():
+        raise ValidationError({"detail": "UPI payment is not available right now."})
+    payment = Payment.objects.get(order=order)
+    if order.payment_method != Order.METHOD_UPI or order.status == Order.STATUS_CANCELLED:
+        raise ValidationError({"detail": "This order is not payable by UPI."})
+    if payment.status == Order.PAYMENT_PAID:
+        raise ValidationError({"detail": "This order is already paid."})
+    return payment
+
+
+def upi_details(order):
+    """What the browser needs to show the UPI QR code / app link for an unpaid order."""
+    payment = _unpaid_upi_payment(order)
+    params = {"pa": settings.UPI_ID, "pn": settings.UPI_PAYEE_NAME, "am": f"{payment.amount:.2f}", "cu": "INR",
+              "tn": f"Order {order.order_number}", "tr": order.order_number}
+    return {"upi_id": settings.UPI_ID, "payee_name": settings.UPI_PAYEE_NAME, "amount": f"{payment.amount:.2f}",
+            "order_number": order.order_number, "reference": payment.transaction_reference,
+            "link": "upi://pay?" + urlencode(params, quote_via=quote)}
+
+
+def submit_upi_reference(order, reference=""):
+    """Customer says they have paid: mark the order paid, keeping their UPI reference if they gave one."""
+    payment = _unpaid_upi_payment(order)
+    reference = (reference or "").strip()
+    if reference:
+        if not UTR_RE.match(reference):
+            raise ValidationError({"reference": "The UPI reference number should be 12 digits."})
+        if Payment.objects.exclude(pk=payment.pk).filter(method=Order.METHOD_UPI, transaction_reference=reference).exists():
+            raise ValidationError({"reference": "This reference number was already used for another order."})
+    return mark_paid(order, reference or f"UPI-{secrets.token_hex(5).upper()}")

@@ -220,6 +220,10 @@ STANDARD_SHIPPING_FEE = int(os.getenv("STANDARD_SHIPPING_FEE", "99"))
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip()
+
+# Direct UPI (customer pays your UPI ID; you confirm the payment in the admin). Leave UPI_ID empty to hide the option.
+UPI_ID = os.getenv("UPI_ID", "").strip()
+UPI_PAYEE_NAME = os.getenv("UPI_PAYEE_NAME", "StepUp.in").strip()
 MAX_ITEM_QUANTITY = 10
 
 # ---------------------------------------------------------------------------
