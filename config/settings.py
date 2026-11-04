@@ -245,7 +245,7 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
 }
 # Email. EMAIL_MODE=console prints emails in the terminal (safe for development, but it includes password-reset
-# links); EMAIL_MODE=smtp delivers them to real inboxes. It defaults to console while DJANGO_DEBUG=true and to
+# links); EMAIL_MODE=smtp delivers them to real inboxes; EMAIL_MODE=brevo sends through Brevo's HTTPS API. It defaults to console while DJANGO_DEBUG=true and to
 # smtp otherwise, so production never prints reset links to its logs. Credentials come only from the environment.
 EMAIL_MODE = os.getenv("EMAIL_MODE", "console" if DEBUG else "smtp").strip().lower()
 if EMAIL_MODE == "smtp":
@@ -257,6 +257,10 @@ if EMAIL_MODE == "smtp":
     EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
     EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)  # set for port 465 (and EMAIL_USE_TLS=false)
     EMAIL_TIMEOUT = 10
+elif EMAIL_MODE == "brevo":
+    # HTTPS API: works on hosts that block outbound SMTP (e.g. Render free tier).
+    EMAIL_BACKEND = "core.email_backend.BrevoEmailBackend"
+    BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
